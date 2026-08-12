@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+</head>
+<body>
+<div id="multiplier">    
+</div>
+<canvas id="chart" width="600" height="300"></canvas>
+<button id="button-bet">
+    Bet
+</button>
+<button id="button-cashOut">
+    CashOut
+</button>
+<div id="cashOut">
+    
+</div>
+<div id="betSettled">
+    <span id="betSettled-text">betSettled</span>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/@microsoft/signalr@8.0.0/dist/browser/signalr.min.js">
+</script>
+<script>
+    const accountId = crypto.randomUUID();
+    const connection = new signalR.HubConnectionBuilder()
+        .withUrl("/gamehub?accountId=" + accountId)
+        .build();
+    var betId = "";
+    var buttonBet = document.getElementById("button-bet");
+    var cashOut = "";
+    var betSettled = "";
+    
+    buttonBet.addEventListener("click", async () => {
+        const response = await fetch('/bets', { 
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'X-Account-Id': accountId}, 
+            body: JSON.stringify({ accountId, amount: 5, roundId: currentRoundId, tableId: "table-2" }) 
+        });
+
+        const bet = await response.json();
+        betId = bet.id;
+    });
+
+    var cashOutText = document.getElementById("cashOut");
+    var buttonCashOut = document.getElementById("button-cashOut");
+    buttonCashOut.addEventListener("click", async () => {
+        const response = await fetch('/bets/' + betId + '/cashout', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'X-Account-Id': accountId}
+        });
+        
+        cashOut = await response.json();
+        cashOutText.textContent = "Cash out:" + cashOut;
+    });
+
+    const canvas = document.getElementById("chart");
+    const ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.beginPath();
+    ctx.moveTo(5, canvas.height - 30);
+    var x = 5;
+    let y;
+    var isCleared = true;
+    let currentRoundId = "";
+    
+    connection.on("ReceiveTick", (data) => {
+        if(data.tableId !== "table-2") return;
+        document.getElementById("multiplier").textContent = data.multiplier.toFixed(2);
+        console.log(data);
+        currentRoundId = data.roundId;
+        
+        if(data.state === "WaitingForBets" && !isCleared)
+        {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.beginPath();
+            ctx.moveTo(5, canvas.height - 30);
+            x = 5;
+            isCleared = true;
+        }
+        else if(data.state === "Running")
+        {
+            x += 4;
+            y = canvas.height - data.multiplier * 30;
+            ctx.lineTo(x, y);
+            ctx.stroke();
+            isCleared = false;
+        }
+    });
+
+    connection.on("BetSettled", (data) => {
+        document.getElementById("betSettled-text").textContent = JSON.stringify(data);
+    });
+    
+    connection.start().catch(err => console.error(err));
+</script>
+</body>
+</html>
+

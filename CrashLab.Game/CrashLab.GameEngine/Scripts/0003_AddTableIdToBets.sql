@@ -1,0 +1,1 @@
+ALTER TABLE bets ADD COLUMN table_id TEXT NOT NULL DEFAULT 'table-1';

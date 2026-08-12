@@ -1,0 +1,2 @@
+dotnet build "C:\pets\CrashLab\CrashLab.Game\CrashLab.LoadTests\CrashLab.LoadTests.csproj"
+dotnet run --project "C:\pets\CrashLab\CrashLab.Game\CrashLab.LoadTests\CrashLab.LoadTests.csproj" -- $args *>&1 | Tee-Object -FilePath "C:\pets\CrashLab\reports\last-run.log"

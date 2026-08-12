@@ -1,0 +1,6 @@
+@CrashLab.RealTimeGateWay_HostAddress = http://localhost:5109
+
+GET {{CrashLab.RealTimeGateWay_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

@@ -1,0 +1,6 @@
+@CrashLab.GameEngine_HostAddress = http://localhost:5290
+
+GET {{CrashLab.GameEngine_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

@@ -1,0 +1,7 @@
+global:
+    scrape_interval: 5s
+
+scrape_configs:
+  - job_name: 'crashlab-game'
+    static_configs:
+      - targets: ['host.docker.internal:5290', 'host.docker.internal:5109', 'host.docker.internal:5110', 'host.docker.internal:5143']

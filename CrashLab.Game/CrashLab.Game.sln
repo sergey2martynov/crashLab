@@ -1,0 +1,52 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CrashLab.LoadTests", "CrashLab.LoadTests\CrashLab.LoadTests.csproj", "{8C4C2823-158E-408B-ADD6-9BB943639C70}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CrashLab.GameEngine", "CrashLab.GameEngine\CrashLab.GameEngine.csproj", "{EA86DFAA-519A-444E-B768-C987EF2F26D5}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CrashLab.RealTimeGateWay", "CrashLab.RealTimeGateWay\CrashLab.RealTimeGateWay.csproj", "{C692D8F2-C96D-495B-89F7-685DEF9B68F0}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CrashLab.GateWay", "CrashLab.GateWay\CrashLab.GateWay.csproj", "{9FDC41C6-1267-4DB9-B604-5088C884B78E}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CrashLab.WalletService", "CrashLab.WalletService\CrashLab.WalletService.csproj", "{CA430CB3-4BE7-4BB6-B80E-2AB9AC862644}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CrashLab.SettlementService", "CrashLab.SettlementService\CrashLab.SettlementService.csproj", "{7F5A2B66-D056-48DF-827D-1D32BD78D8D4}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CrashLab.IdentityServer", "CrashLab.IdentityServer\CrashLab.IdentityServer.csproj", "{4511AF02-3AA6-47A7-A680-36B8B296F0BC}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{8C4C2823-158E-408B-ADD6-9BB943639C70}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8C4C2823-158E-408B-ADD6-9BB943639C70}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8C4C2823-158E-408B-ADD6-9BB943639C70}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8C4C2823-158E-408B-ADD6-9BB943639C70}.Release|Any CPU.Build.0 = Release|Any CPU
+		{EA86DFAA-519A-444E-B768-C987EF2F26D5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{EA86DFAA-519A-444E-B768-C987EF2F26D5}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{EA86DFAA-519A-444E-B768-C987EF2F26D5}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{EA86DFAA-519A-444E-B768-C987EF2F26D5}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C692D8F2-C96D-495B-89F7-685DEF9B68F0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C692D8F2-C96D-495B-89F7-685DEF9B68F0}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C692D8F2-C96D-495B-89F7-685DEF9B68F0}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C692D8F2-C96D-495B-89F7-685DEF9B68F0}.Release|Any CPU.Build.0 = Release|Any CPU
+		{9FDC41C6-1267-4DB9-B604-5088C884B78E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9FDC41C6-1267-4DB9-B604-5088C884B78E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9FDC41C6-1267-4DB9-B604-5088C884B78E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9FDC41C6-1267-4DB9-B604-5088C884B78E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{CA430CB3-4BE7-4BB6-B80E-2AB9AC862644}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{CA430CB3-4BE7-4BB6-B80E-2AB9AC862644}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{CA430CB3-4BE7-4BB6-B80E-2AB9AC862644}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{CA430CB3-4BE7-4BB6-B80E-2AB9AC862644}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7F5A2B66-D056-48DF-827D-1D32BD78D8D4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7F5A2B66-D056-48DF-827D-1D32BD78D8D4}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7F5A2B66-D056-48DF-827D-1D32BD78D8D4}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7F5A2B66-D056-48DF-827D-1D32BD78D8D4}.Release|Any CPU.Build.0 = Release|Any CPU
+		{4511AF02-3AA6-47A7-A680-36B8B296F0BC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4511AF02-3AA6-47A7-A680-36B8B296F0BC}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4511AF02-3AA6-47A7-A680-36B8B296F0BC}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4511AF02-3AA6-47A7-A680-36B8B296F0BC}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal

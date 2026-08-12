@@ -1,0 +1,6 @@
+@CrashLab.IdentityServer_HostAddress = http://localhost:5181
+
+GET {{CrashLab.IdentityServer_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
