@@ -5,10 +5,11 @@ using Microsoft.AspNetCore.SignalR;
 namespace CrashLab.RealTimeGateWay.Hubs;
 
 [Authorize]
-public class GameHub(GameMetrics gameMetrics) : Hub
+public class GameHub(GameMetrics gameMetrics, ILogger<GameHub> logger) : Hub
 {
     public override Task OnConnectedAsync()
     {
+        logger.LogInformation("SignalR connected, UserIdentifier={UserId}", Context.UserIdentifier);
         gameMetrics.ConnectionOpened();
         return base.OnConnectedAsync();
     }

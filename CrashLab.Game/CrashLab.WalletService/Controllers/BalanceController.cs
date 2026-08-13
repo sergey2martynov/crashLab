@@ -23,7 +23,7 @@ public class BalanceController : ControllerBase
         _walletService = walletService;
     }
 
-    [HttpGet("{accountId:guid}")]
+    [HttpGet]
     public async Task<ActionResult<Wallet>> GetBalance(CancellationToken ct = default)
     {
         var accountId = new Guid(User.FindFirstValue(OpenIddictConstants.Claims.Subject)!);

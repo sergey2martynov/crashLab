@@ -37,7 +37,23 @@ builder.Services.AddRateLimiter(options =>
     });
 });
 
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("spa", policy =>
+    {
+        policy.WithOrigins("http://localhost:5173")
+            .AllowAnyHeader()
+            .AllowCredentials()
+            .AllowAnyMethod();
+    });
+});
+
 var app = builder.Build();
+
+app.UseCors("spa");
+
 app.UseRateLimiter();
+
 app.MapReverseProxy();
+
 app.Run();

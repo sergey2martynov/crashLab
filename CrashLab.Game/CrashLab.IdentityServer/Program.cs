@@ -50,6 +50,16 @@ builder.Services.AddOpenIddict()
             .EnableTokenEndpointPassthrough();
     });
 
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("spa", policy =>
+    {
+        policy.WithOrigins("http://localhost:5173")
+            .AllowAnyHeader()
+            .AllowAnyMethod();
+    });
+});
+
 var app = builder.Build();
 
 using (var scope = app.Services.CreateScope())
@@ -95,7 +105,7 @@ using (var scope = app.Services.CreateScope())
         var user = new IdentityUser { UserName = "testuser2", Email = "test2@crashlab.local" };
         await userManager.CreateAsync(user, "Test123!");
     }
-}
+}   
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
@@ -105,6 +115,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+app.UseCors("spa");
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
