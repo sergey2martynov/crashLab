@@ -15,6 +15,7 @@ using Microsoft.IdentityModel.Tokens;
 using Npgsql;
 using OpenIddict.Validation.AspNetCore;
 using OpenTelemetry.Metrics;
+using Orleans.Configuration;
 using Polly;
 using Serilog;
 using StackExchange.Redis;
@@ -30,7 +31,7 @@ builder.Services.AddOpenIddict()
     .AddValidation(options =>
     {
         var devSecret = builder.Configuration["DevelopmentSecretCert"];
-        options.SetIssuer("https://localhost:7289/");
+        options.SetIssuer("http://identity.crashlab.local:8090/");
         options.AddEncryptionKey(new SymmetricSecurityKey(Convert.FromBase64String(devSecret)));
         options.UseSystemNetHttp();
         options.UseAspNetCore();
@@ -45,11 +46,22 @@ builder.Services.AddControllers();
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
-builder.Host.UseOrleans(siloBuilder => siloBuilder.UseLocalhostClustering());
-var redis = ConnectionMultiplexer.Connect("localhost:6379");
+builder.Services.AddHealthChecks();
+builder.Host.UseOrleans(siloBuilder => siloBuilder
+    .UseRedisClustering(options =>
+    {
+        options.ConfigurationOptions = ConfigurationOptions.Parse(
+            builder.Configuration["Redis:ConnectionString"]!);
+    })
+    .Configure<ClusterOptions>(options =>
+    {
+        options.ClusterId = "gameengine";
+        options.ServiceId = "gameengine";
+    }));
+var redis = ConnectionMultiplexer.Connect(builder.Configuration["Redis:ConnectionString"]!);
 builder.Services.AddSingleton<IConnectionMultiplexer>(redis);
 
-var producerConfig = new ProducerConfig { BootstrapServers = "localhost:9092" };
+var producerConfig = new ProducerConfig { BootstrapServers = builder.Configuration["Kafka:BootstrapServers"] };
 builder.Services.AddSingleton<IProducer<string, string>>(_ =>
     new ProducerBuilder<string, string>(producerConfig).Build());
 
@@ -115,6 +127,8 @@ if (!result.Successful)
 }
 
 var app = builder.Build();
+
+app.MapHealthChecks("/health");
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())

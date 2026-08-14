@@ -9,7 +9,8 @@ namespace CrashLab.RealTimeGateWay.Services;
 public class ConsumerService(
     ILogger<ConsumerService> logger,
     IProducer<string, string> producer,
-    IHubContext<GameHub> hubContext) : BackgroundService
+    IHubContext<GameHub> hubContext,
+    IConfiguration configuration) : BackgroundService
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
     private IConsumer<string, string>? _consumer;
@@ -18,7 +19,7 @@ public class ConsumerService(
     {
         var config = new ConsumerConfig
         {
-            BootstrapServers = "localhost:9092",
+            BootstrapServers = configuration["Kafka:BootstrapServers"],
             GroupId = $"realtime-gateway-{Guid.NewGuid()}",
             EnableAutoCommit = false,
             AutoOffsetReset = AutoOffsetReset.Latest

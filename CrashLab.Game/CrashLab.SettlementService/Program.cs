@@ -15,6 +15,7 @@ builder.Services.AddControllers();
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+builder.Services.AddHealthChecks();
 
 builder.Services.AddSingleton<SettlementMetrics>();
 builder.Services.AddScoped<IBetRepository, BetRepository>();
@@ -22,7 +23,7 @@ builder.Services.AddScoped<IOutboxRepository, OutboxRepository>();
 builder.Services.AddHostedService<OutboxPublisherService>();
 builder.Services.AddHostedService<SettlementConsumerService>();
 
-var producerConfig = new ProducerConfig { BootstrapServers = "localhost:9092" };
+var producerConfig = new ProducerConfig { BootstrapServers = builder.Configuration["Kafka:BootstrapServers"] };
 builder.Services.AddSingleton<IProducer<string, string>>(_ =>
     new ProducerBuilder<string, string>(producerConfig).Build());
 
@@ -55,6 +56,8 @@ if (!result.Successful)
 }
 
 var app = builder.Build();
+
+app.MapHealthChecks("/health");
 
 app.MapPrometheusScrapingEndpoint();
 // Configure the HTTP request pipeline.

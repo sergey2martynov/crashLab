@@ -1,4 +1,4 @@
-const BASE_URL = 'https://localhost:7297'
+const BASE_URL = import.meta.env.VITE_GATEWAY_URL
 
 export async function apiFetch<T>(path: string, accessToken: string, options: RequestInit = {}): Promise<T> {
     const res = await fetch(`${BASE_URL}${path}`, {

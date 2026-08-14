@@ -42,7 +42,7 @@ function GamePage() {
         if(!user) return
 
         const connection = new HubConnectionBuilder()
-            .withUrl(`https://localhost:7297/gamehub?access_token=${user.access_token}`, {
+            .withUrl(`${import.meta.env.VITE_GATEWAY_URL}/gamehub?access_token=${user.access_token}`, {
                 withCredentials: true
             })
             .build()

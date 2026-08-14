@@ -23,14 +23,14 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddHealthChecks();
-var redis = ConnectionMultiplexer.Connect("localhost:6379");
+var redis = ConnectionMultiplexer.Connect(builder.Configuration["Redis:ConnectionString"]!);
 builder.Services.AddSingleton<IConnectionMultiplexer>(redis);
 
 builder.Services.AddOpenIddict()
     .AddValidation(options =>
     {
         var devSecret = builder.Configuration["DevelopmentSecretCert"];
-        options.SetIssuer("https://localhost:7289/");
+        options.SetIssuer("http://identity.crashlab.local:8090/");
         options.AddEncryptionKey(new SymmetricSecurityKey(Convert.FromBase64String(devSecret)));
         options.UseSystemNetHttp();
         options.UseAspNetCore();
@@ -45,7 +45,7 @@ builder.Services.AddSingleton<GameMetrics>();
 builder.Services.AddHostedService<HostedService>();
 builder.Services.AddSingleton<IUserIdProvider, AccountIdUserIdProvider>();
 builder.Services.AddHostedService<ConsumerService>();
-var producerConfig = new ProducerConfig { BootstrapServers = "localhost:9092" };
+var producerConfig = new ProducerConfig { BootstrapServers = builder.Configuration["Kafka:BootstrapServers"] };
 builder.Services.AddSingleton<IProducer<string, string>>(_ =>
     new ProducerBuilder<string, string>(producerConfig).Build());
 

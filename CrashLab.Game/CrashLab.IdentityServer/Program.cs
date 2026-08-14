@@ -40,27 +40,34 @@ builder.Services.AddOpenIddict()
         var devSecret = builder.Configuration["DevelopmentSecretCert"];
         options.AddEncryptionKey(new SymmetricSecurityKey(Convert.FromBase64String(devSecret!)));
 
-        options.SetIssuer(new Uri("https://localhost:7289/"));
+        options.SetIssuer(new Uri("http://identity.crashlab.local:8090/"));
             
         options.AddDevelopmentEncryptionCertificate()
             .AddDevelopmentSigningCertificate();
 
         options.UseAspNetCore()
             .EnableAuthorizationEndpointPassthrough()
-            .EnableTokenEndpointPassthrough();
+            .EnableTokenEndpointPassthrough()
+            .DisableTransportSecurityRequirement();
     });
 
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("spa", policy =>
     {
-        policy.WithOrigins("http://localhost:5173")
+        policy.WithOrigins("http://app.crashlab.local:8090")
             .AllowAnyHeader()
             .AllowAnyMethod();
     });
 });
 
 var app = builder.Build();
+
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    await db.Database.MigrateAsync();
+}
 
 using (var scope = app.Services.CreateScope())
 {
@@ -72,8 +79,8 @@ using (var scope = app.Services.CreateScope())
         {
             ClientId = "crashlab-spa",
             ClientType = OpenIddictConstants.ClientTypes.Public, // SPA + PKCE, no client secret
-            RedirectUris = { new Uri("http://localhost:5173/callback") },
-            PostLogoutRedirectUris = { new Uri("http://localhost:5173/") },
+            RedirectUris = { new Uri("http://app.crashlab.local:8090/callback") },
+            PostLogoutRedirectUris = { new Uri("http://app.crashlab.local:8090/") },
             Permissions =
             {
                 OpenIddictConstants.Permissions.Endpoints.Authorization,

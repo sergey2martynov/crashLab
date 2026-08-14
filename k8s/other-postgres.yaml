@@ -1,0 +1,183 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: gameengine-postgres-data
+  namespace: crashlab
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gameengine-postgres
+  namespace: crashlab
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gameengine-postgres
+  template:
+    metadata:
+      labels:
+        app: gameengine-postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16
+          args: ["postgres", "-c", "max_connections=300"]
+          env:
+            - name: POSTGRES_USER
+              value: gameengine
+            - name: POSTGRES_DB
+              value: gameengine
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secrets
+                  key: gameengine-password
+          ports:
+            - containerPort: 5432
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: gameengine-postgres-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gameengine-postgres
+  namespace: crashlab
+spec:
+  selector:
+    app: gameengine-postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: settlement-postgres-data
+  namespace: crashlab
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: settlement-postgres
+  namespace: crashlab
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: settlement-postgres
+  template:
+    metadata:
+      labels:
+        app: settlement-postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16
+          env:
+            - name: POSTGRES_USER
+              value: settlement
+            - name: POSTGRES_DB
+              value: settlement
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secrets
+                  key: settlement-password
+          ports:
+            - containerPort: 5432
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: settlement-postgres-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: settlement-postgres
+  namespace: crashlab
+spec:
+  selector:
+    app: settlement-postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: identity-postgres-data
+  namespace: crashlab
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: identity-postgres
+  namespace: crashlab
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: identity-postgres
+  template:
+    metadata:
+      labels:
+        app: identity-postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16
+          env:
+            - name: POSTGRES_USER
+              value: identity
+            - name: POSTGRES_DB
+              value: identity
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secrets
+                  key: identity-password
+          ports:
+            - containerPort: 5432
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: identity-postgres-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: identity-postgres
+  namespace: crashlab
+spec:
+  selector:
+    app: identity-postgres
+  ports:
+    - port: 5432
+      targetPort: 5432

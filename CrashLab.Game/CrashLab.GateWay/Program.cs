@@ -37,11 +37,13 @@ builder.Services.AddRateLimiter(options =>
     });
 });
 
+builder.Services.AddHealthChecks();
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("spa", policy =>
     {
-        policy.WithOrigins("http://localhost:5173")
+        policy.WithOrigins("http://app.crashlab.local:8090")
             .AllowAnyHeader()
             .AllowCredentials()
             .AllowAnyMethod();
@@ -49,7 +51,7 @@ builder.Services.AddCors(options =>
 });
 
 var app = builder.Build();
-
+app.MapHealthChecks("/health");
 app.UseCors("spa");
 
 app.UseRateLimiter();

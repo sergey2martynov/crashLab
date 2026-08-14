@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pgbouncer
+  namespace: crashlab
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pgbouncer
+  template:
+    metadata:
+      labels:
+        app: pgbouncer
+    spec:
+      containers:
+        - name: pgbouncer
+          image: pgbouncer/pgbouncer:latest
+          env:
+            - name: DATABASES_HOST
+              value: postgres
+            - name: DATABASES_PORT
+              value: "5432"
+            - name: DATABASES_USER
+              value: crashlab
+            - name: DATABASES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secrets
+                  key: crashlab-password
+            - name: DATABASES_DBNAME
+              value: crashlab
+            - name: PGBOUNCER_POOL_MODE
+              value: transaction
+            - name: PGBOUNCER_MAX_CLIENT_CONN
+              value: "2500"
+            - name: PGBOUNCER_DEFAULT_POOL_SIZE
+              value: "300"
+            - name: PGBOUNCER_AUTH_TYPE
+              value: any
+          ports:
+            - containerPort: 6432
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pgbouncer
+  namespace: crashlab
+spec:
+  selector:
+    app: pgbouncer
+  ports:
+    - port: 6432
+      targetPort: 6432

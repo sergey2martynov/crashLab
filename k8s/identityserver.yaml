@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: identityserver
+  namespace: crashlab
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: identityserver
+  template:
+    metadata:
+      labels:
+        app: identityserver
+    spec:
+      containers:
+        - name: identityserver
+          image: identityserver:local
+          imagePullPolicy: Never
+          env:
+            - name: ConnectionStrings__Default
+              value: "Host=identity-postgres;Port=5432;Database=identity;Username=identity;Password=identity"
+            - name: DevelopmentSecretCert
+              valueFrom:
+                secretKeyRef:
+                  name: openiddict-secret
+                  key: key
+          ports:
+            - containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: identityserver
+  namespace: crashlab
+spec:
+  selector:
+    app: identityserver
+  ports:
+    - name: http-8080
+      port: 8080
+      targetPort: 8080
+    - name: http-8090
+      port: 8090
+      targetPort: 8080

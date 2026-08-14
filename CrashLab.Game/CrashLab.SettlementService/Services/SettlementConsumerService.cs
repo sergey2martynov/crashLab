@@ -12,7 +12,8 @@ public class SettlementConsumerService(
     IServiceScopeFactory scopeFactory,
     ILogger<SettlementConsumerService> logger,
     SettlementMetrics metrics,
-    IProducer<string, string> producer) : BackgroundService
+    IProducer<string, string> producer,
+    IConfiguration configuration) : BackgroundService
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
     private IConsumer<string, string>? _consumer;
@@ -21,7 +22,7 @@ public class SettlementConsumerService(
     {
         var config = new ConsumerConfig
         {
-            BootstrapServers = "localhost:9092",
+            BootstrapServers = configuration["Kafka:BootstrapServers"],
             GroupId = "settlement-service",
             EnableAutoCommit = false,
             AutoOffsetReset = AutoOffsetReset.Earliest

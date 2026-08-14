@@ -13,12 +13,13 @@ builder.Services.AddControllers();
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+builder.Services.AddHealthChecks();
 
 builder.Services.AddOpenIddict()
     .AddValidation(options =>
     {
         var devSecret = builder.Configuration["DevelopmentSecretCert"];
-        options.SetIssuer("https://localhost:7289/");
+        options.SetIssuer("http://identity.crashlab.local:8090/");
         options.AddEncryptionKey(new SymmetricSecurityKey(Convert.FromBase64String(devSecret)));
         options.UseSystemNetHttp();
         options.UseAspNetCore();
@@ -62,6 +63,8 @@ if (!result.Successful)
 }
 
 var app = builder.Build();
+
+app.MapHealthChecks("/health");
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())

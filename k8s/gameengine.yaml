@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gameengine
+  namespace: crashlab
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: gameengine
+  template:
+    metadata:
+      labels:
+        app: gameengine
+    spec:
+      containers:
+        - name: gameengine
+          image: gameengine:local
+          imagePullPolicy: Never
+          env:
+            - name: WalletConfiguration__BaseUrl
+              value: "http://walletservice:8080"
+            - name: ConnectionStrings__Default
+              value: "Host=gameengine-postgres;Port=5432;Database=gameengine;Username=gameengine;Password=gameengine;Maximum Pool Size=200"
+            - name: Redis__ConnectionString
+              value: "redis:6379"
+            - name: Kafka__BootstrapServers
+              value: "kafka:9092"
+            - name: DevelopmentSecretCert
+              valueFrom:
+                secretKeyRef:
+                  name: openiddict-secret
+                  key: key
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gameengine
+  namespace: crashlab
+spec:
+  selector:
+    app: gameengine
+  ports:
+    - port: 8080
+      targetPort: 8080
