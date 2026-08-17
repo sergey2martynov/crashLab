@@ -51,4 +51,13 @@ foreach ($file in $manifestFiles) {
 }
 kubectl apply @applyArgs
 
+Write-Host "=== Waiting for Kafka ===" -ForegroundColor Cyan
+kubectl rollout status deployment kafka -n $namespace --timeout=120s
+
+Write-Host "=== Creating Kafka topics ===" -ForegroundColor Cyan
+$topics = @("round.crashed", "bet.placed", "bet.cashed_out", "bet.settled", "dead-letter")
+foreach ($topic in $topics) {
+    kubectl exec -n $namespace deploy/kafka -- /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --topic $topic --bootstrap-server localhost:9092 --partitions 3 --replication-factor 1
+}
+
 Write-Host "=== Done. Check: kubectl get pods -n $namespace ===" -ForegroundColor Green

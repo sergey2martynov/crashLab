@@ -11,6 +11,8 @@
         <PackageReference Include="Microsoft.Extensions.Http.Resilience" Version="8.10.0" />
         <PackageReference Include="Microsoft.Orleans.Clustering.Redis" Version="8.2.0" />
         <PackageReference Include="Microsoft.Orleans.Server" Version="8.2.0" />
+        <PackageReference Include="Microsoft.Orleans.Persistence.Redis" Version="8.2.0" />
+        <PackageReference Include="Microsoft.Orleans.Reminders.Redis" Version="8.2.0" />
         <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.16.0" />
         <PackageReference Include="Serilog.AspNetCore" Version="8.0.3" />
         <PackageReference Include="StackExchange.Redis" Version="3.0.11" />

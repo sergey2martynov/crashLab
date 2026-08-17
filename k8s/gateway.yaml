@@ -26,6 +26,11 @@ spec:
               value: "http://gameengine:8080"
             - name: ReverseProxy__Clusters__wallet-cluster__Destinations__destination1__Address
               value: "http://walletservice:8080"
+            - name: DevelopmentSecretCert
+              valueFrom:
+                secretKeyRef:
+                  name: openiddict-secret
+                  key: key
           ports:
             - containerPort: 8080
           readinessProbe:

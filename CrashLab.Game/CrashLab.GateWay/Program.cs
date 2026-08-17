@@ -1,16 +1,32 @@
+using System.Security.Claims;
 using System.Threading.RateLimiting;
+using Microsoft.IdentityModel.Tokens;
+using OpenIddict.Abstractions;
+using OpenIddict.Validation.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddReverseProxy()
     .LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"));
 
+builder.Services.AddOpenIddict()
+    .AddValidation(options =>
+    {
+        var devSecret = builder.Configuration["DevelopmentSecretCert"];
+        options.SetIssuer("http://identity.crashlab.local:8090/");
+        options.AddEncryptionKey(new SymmetricSecurityKey(Convert.FromBase64String(devSecret!)));
+        options.UseSystemNetHttp();
+        options.UseAspNetCore();
+    });
+
+builder.Services.AddAuthentication(OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme);
+builder.Services.AddAuthorization();
 
 builder.Services.AddRateLimiter(options =>
 {
     options.AddPolicy("bets-per-user", httpContext =>
     {
-        var accountId = httpContext.Request.Headers["X-Account-Id"].ToString();
+        var accountId = httpContext.User.FindFirstValue(OpenIddictConstants.Claims.Subject);
         var key = string.IsNullOrEmpty(accountId)
             ? httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown"
             : accountId;
@@ -18,20 +34,6 @@ builder.Services.AddRateLimiter(options =>
         {
             PermitLimit = 5,
             Window = TimeSpan.FromSeconds(5),
-            QueueLimit = 0
-        });
-    });
-    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-    
-    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
-    {
-        var ip = httpContext.Request.Headers["X-Forwarded-For"].FirstOrDefault()
-                 ?? httpContext.Connection.RemoteIpAddress?.ToString()
-                 ?? "unknown";
-        return RateLimitPartition.GetFixedWindowLimiter(ip, _ => new FixedWindowRateLimiterOptions
-        {
-            PermitLimit = 20,
-            Window = TimeSpan.FromSeconds(10),
             QueueLimit = 0
         });
     });
@@ -53,6 +55,9 @@ builder.Services.AddCors(options =>
 var app = builder.Build();
 app.MapHealthChecks("/health");
 app.UseCors("spa");
+
+app.UseAuthentication();
+app.UseAuthorization();
 
 app.UseRateLimiter();
 

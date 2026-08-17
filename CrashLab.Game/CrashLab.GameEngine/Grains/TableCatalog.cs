@@ -9,9 +9,20 @@ public class TableCatalog : ITableCatalog
         new("table-3", 100m, 10000m),
     ];
 
-    public TableConfig GetConfig(string tableId) =>
-        Tables.FirstOrDefault(t => t.TableId == tableId)
-        ?? throw new InvalidOperationException($"Unknown table {tableId}");
+    public TableConfig GetConfig(string tableId)
+    {
+        var exact = Tables.FirstOrDefault(t => t.TableId == tableId);
+        if (exact is not null) return exact;
+
+        var dashIndex = tableId.LastIndexOf('-');
+        if (dashIndex > 0)
+        {
+            var baseConfig = Tables.FirstOrDefault(t => t.TableId == tableId[..dashIndex]);
+            if (baseConfig is not null) return baseConfig;
+        }
+
+        throw new InvalidOperationException($"Unknown table {tableId}");
+    }
 
     public IReadOnlyList<TableConfig> GetAllTables() => Tables;
 }

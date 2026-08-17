@@ -1,49 +1,118 @@
+using System.Diagnostics;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using CrashLab.GameEngine.Metrics;
+using CrashLab.GameEngine.Repositories;
+using Orleans.Placement;
+using StackExchange.Redis;
+
 namespace CrashLab.GameEngine.Grains;
 
+[ActivationCountBasedPlacement]
 public class RoundGrain(ILogger<RoundGrain> logger,
-    ITableCatalog tableCatalog) : Grain, IRoundGrain
+    ITableCatalog tableCatalog,
+    [PersistentState("round", "roundStore")] IPersistentState<Round> state,
+    IConnectionMultiplexer redis,
+    IServiceScopeFactory serviceScopeFactory,
+    GameMetrics gameMetrics)
+    : Grain, IRoundGrain, IRemindable
 {
     private const int BetWaitingDuration = 10;
     private const int PauseAfterCrashingDuration = 3;
     private TableConfig _config = null!;
-    private Round _currentRound = new(DateTimeOffset.UtcNow);
     
-    public override Task OnActivateAsync(CancellationToken cancellationToken)
+    private static readonly TimeSpan SlowCallThreshold = TimeSpan.FromMilliseconds(50);
+    
+    private static readonly JsonSerializerOptions Options = new()
+    {
+        Converters = { new JsonStringEnumConverter() }
+    };
+    
+    public override async Task OnActivateAsync(CancellationToken cancellationToken)
     {
         _config = tableCatalog.GetConfig(this.GetPrimaryKeyString());
-        return base.OnActivateAsync(cancellationToken);
+        if (!state.RecordExists)
+        {
+            state.State = new Round(DateTimeOffset.UtcNow);
+            await state.WriteStateAsync();
+        }
+        
+        this.RegisterGrainTimer(TickAndPublish, TimeSpan.Zero, TimeSpan.FromMilliseconds(150));
+        await this.RegisterOrUpdateReminder("heartbeat", TimeSpan.Zero, TimeSpan.FromMinutes(1));
+        logger.LogInformation("Timer registered for {Table}", this.GetPrimaryKeyString());
+        await base.OnActivateAsync(cancellationToken);
     }
     
-    public Task<RoundDto> Tick(DateTimeOffset now)
+    private async Task TickAndPublish()
     {
-        if (_currentRound.State == RoundState.WaitingForBets
-            && now - _currentRound.StateEnteredAt > TimeSpan.FromSeconds(BetWaitingDuration))
+        logger.LogInformation("Tick fired for {Table}", this.GetPrimaryKeyString());
+        var before = CurrentState();
+        var multiplier = await GetMultiplier(before);
+
+        var value = new
         {
-            _currentRound.State = RoundState.Running;
-            _currentRound.StateEnteredAt = now;
-            _currentRound.CrashPoint = GenerateCrashPoint();
-            logger.LogInformation("Stage changed to {State}, CrashPoint: {CrashPoint}", _currentRound.State,
-                _currentRound.CrashPoint);
+            roundId = before.Id,
+            tableId = this.GetPrimaryKeyString(),
+            multiplier,
+            state = before.State,
+            serverTime = DateTimeOffset.UtcNow
+        };
+        await redis.GetSubscriber().PublishAsync(RedisChannel.Literal("round-ticks"),
+            new RedisValue(JsonSerializer.Serialize(value, Options)));
+
+        var wasRunning = before.State == RoundState.Running;
+        gameMetrics.TickProcessed();
+        var after = await Tick(DateTimeOffset.UtcNow);
+
+        if (wasRunning && after.State == RoundState.Crashed)
+        {
+            using var scope = serviceScopeFactory.CreateScope();
+            var outboxRepository = scope.ServiceProvider.GetRequiredService<IOutboxRepository>();
+            await outboxRepository.AddEventAsync("round.crashed", new { roundId = after.Id, crashPoint = after.CrashPoint });
         }
-        if (_currentRound.State == RoundState.Running)
+    }
+
+    private async Task<double> GetMultiplier(RoundDto s) =>
+        s.State switch
+        {
+            RoundState.WaitingForBets => 1.0,
+            RoundState.Crashed => s.CrashPoint,
+            _ => await GetCurrentMultiplier(DateTimeOffset.UtcNow)
+        };
+    
+    public async Task<RoundDto> Tick(DateTimeOffset now)
+    {
+        if (state.State.State == RoundState.WaitingForBets
+            && now - state.State.StateEnteredAt > TimeSpan.FromSeconds(BetWaitingDuration))
+        {
+            state.State.State = RoundState.Running;
+            state.State.StateEnteredAt = now;
+            state.State.CrashPoint = GenerateCrashPoint();
+            logger.LogInformation("Stage changed to {State}, CrashPoint: {CrashPoint}", state.State.State,
+                state.State.CrashPoint);
+            await state.WriteStateAsync();
+        }
+        if (state.State.State == RoundState.Running)
         {
             var multiplier = CalculateMultiplier(now);
-            if (multiplier >= _currentRound.CrashPoint)
+            if (multiplier >= state.State.CrashPoint)
             {
-                _currentRound.State = RoundState.Crashed;
-                _currentRound.StateEnteredAt = now;
-                logger.LogInformation("Stage changed to {State}, CrashPoint: {CrashPoint}", _currentRound.State,
-                    _currentRound.CrashPoint);
+                state.State.State = RoundState.Crashed;
+                state.State.StateEnteredAt = now;
+                logger.LogInformation("Stage changed to {State}, CrashPoint: {CrashPoint}", state.State.State,
+                    state.State.CrashPoint);
+                await state.WriteStateAsync();
             }
         }
-        if (_currentRound.State == RoundState.Crashed
-            && now - _currentRound.StateEnteredAt > TimeSpan.FromSeconds(PauseAfterCrashingDuration))
+        if (state.State.State == RoundState.Crashed
+            && now - state.State.StateEnteredAt > TimeSpan.FromSeconds(PauseAfterCrashingDuration))
         {
-            _currentRound = new Round(now);
-            logger.LogInformation("Stage changed to {State}", _currentRound.State);
+            state.State = new Round(now);
+            logger.LogInformation("Stage changed to {State}", state.State.State);
+            await state.WriteStateAsync();
         }
 
-        return Task.FromResult(CurrentState());
+        return CurrentState();
     }
 
 
@@ -59,7 +128,7 @@ public class RoundGrain(ILogger<RoundGrain> logger,
     
     private double CalculateMultiplier(DateTimeOffset now)
     {
-        var elapsed = now - _currentRound.StateEnteredAt;
+        var elapsed = now - state.State.StateEnteredAt;
         return Math.Exp(0.1 * elapsed.TotalSeconds);
     }
 
@@ -69,8 +138,10 @@ public class RoundGrain(ILogger<RoundGrain> logger,
     }
 
     private RoundDto CurrentState() => new(
-        _currentRound.Id,
-        _currentRound.State,
-        _currentRound.CrashPoint,
-        _currentRound.StateEnteredAt);
+        state.State.Id,
+        state.State.State,
+        state.State.CrashPoint,
+        state.State.StateEnteredAt);
+
+    public Task ReceiveReminder(string reminderName, TickStatus status) => Task.CompletedTask;
 }

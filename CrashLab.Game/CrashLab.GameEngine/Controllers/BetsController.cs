@@ -36,6 +36,13 @@ public class BetsController(
     {
         try
         {
+            var isOpen = await grainFactory.GetGrain<ITableManagerGrain>(0).IsOpen(request.TableId);
+            if (!isOpen)
+            {
+                logger.LogWarning("Bet rejected: table {TableId} is closed", request.TableId);
+                return Results.BadRequest("Table is closed");
+            }
+            
             var grain = grainFactory.GetGrain<IRoundGrain>(request.TableId);
             var state = await grain.GetState();
             var limits = tableCatalog.GetConfig(request.TableId);
@@ -73,6 +80,7 @@ public class BetsController(
                         amount = bet.Amount
                     }, transaction);
                     await transaction.CommitAsync(ct);
+                    await grainFactory.GetGrain<ITableManagerGrain>(0).RecordBet(request.TableId);
                 }
                 catch
                 {

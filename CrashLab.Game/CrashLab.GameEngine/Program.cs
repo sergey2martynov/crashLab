@@ -53,11 +53,26 @@ builder.Host.UseOrleans(siloBuilder => siloBuilder
         options.ConfigurationOptions = ConfigurationOptions.Parse(
             builder.Configuration["Redis:ConnectionString"]!);
     })
+    .UseRedisReminderService(options =>
+    {
+        options.ConfigurationOptions = ConfigurationOptions.Parse(
+            builder.Configuration["Redis:ConnectionString"]!);
+    })
     .Configure<ClusterOptions>(options =>
     {
         options.ClusterId = "gameengine";
         options.ServiceId = "gameengine";
+    })
+    .Configure<ClusterMembershipOptions>(options =>
+    {
+        options.DefunctSiloExpiration = TimeSpan.FromHours(1);
+        options.DefunctSiloCleanupPeriod = TimeSpan.FromMinutes(5);
+    }).AddRedisGrainStorage("roundStore", options =>
+    {
+        options.ConfigurationOptions = ConfigurationOptions.Parse(
+            builder.Configuration["Redis:ConnectionString"]!);
     }));
+
 var redis = ConnectionMultiplexer.Connect(builder.Configuration["Redis:ConnectionString"]!);
 builder.Services.AddSingleton<IConnectionMultiplexer>(redis);
 

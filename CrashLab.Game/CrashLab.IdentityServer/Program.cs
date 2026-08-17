@@ -34,6 +34,7 @@ builder.Services.AddOpenIddict()
 
         options.AllowAuthorizationCodeFlow()
             .RequireProofKeyForCodeExchange(); // PKCE
+        options.AllowPasswordFlow(); // только для нагрузочных тестов, отдельный клиент ниже
 
         options.RegisterScopes(OpenIddictConstants.Scopes.Profile);
         
@@ -91,6 +92,40 @@ using (var scope = app.Services.CreateScope())
             },
             Requirements = { OpenIddictConstants.Requirements.Features.ProofKeyForCodeExchange },
         });
+    }
+}
+
+using (var scope = app.Services.CreateScope())
+{
+    var manager = scope.ServiceProvider.GetRequiredService<IOpenIddictApplicationManager>();
+
+    if (await manager.FindByClientIdAsync("crashlab-loadtest") is null)
+    {
+        await manager.CreateAsync(new OpenIddictApplicationDescriptor
+        {
+            ClientId = "crashlab-loadtest",
+            ClientType = OpenIddictConstants.ClientTypes.Public,
+            Permissions =
+            {
+                OpenIddictConstants.Permissions.Endpoints.Token,
+                OpenIddictConstants.Permissions.GrantTypes.Password,
+                OpenIddictConstants.Permissions.Scopes.Profile,
+            },
+        });
+    }
+}
+
+using (var scope = app.Services.CreateScope())
+{
+    var userManager = scope.ServiceProvider.GetRequiredService<UserManager<IdentityUser>>();
+    for (var i = 0; i < 50; i++)
+    {
+        var username = $"loadtest_{i:D2}";
+        if (await userManager.FindByNameAsync(username) is null)
+        {
+            var user = new IdentityUser { UserName = username, Email = $"{username}@crashlab.local" };
+            await userManager.CreateAsync(user, "LoadTest123!");
+        }
     }
 }
 

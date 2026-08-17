@@ -8,7 +8,8 @@ using OpenIddict.Server.AspNetCore;
 
 namespace CrashLab.IdentityServer.Controllers;
 
-public class AuthorizationController : ControllerBase
+public class AuthorizationController(UserManager<IdentityUser> userManager, SignInManager<IdentityUser> signInManager)
+    : ControllerBase
 {
     [HttpGet("~/connect/authorize")]
     [HttpPost("~/connect/authorize")]
@@ -67,6 +68,29 @@ public class AuthorizationController : ControllerBase
         {
             var result = await HttpContext.AuthenticateAsync(OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
             return SignIn(result.Principal!, OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
+        }
+
+        if (request.IsPasswordGrantType())
+        {
+            var user = await userManager.FindByNameAsync(request.Username!);
+            var signInResult = user is null
+                ? Microsoft.AspNetCore.Identity.SignInResult.Failed
+                : await signInManager.CheckPasswordSignInAsync(user, request.Password!, lockoutOnFailure: false);
+
+            if (!signInResult.Succeeded)
+                return Forbid(OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
+
+            var identity = new ClaimsIdentity(
+                authenticationType: "Bearer",
+                nameType: OpenIddictConstants.Claims.Name,
+                roleType: OpenIddictConstants.Claims.Role);
+
+            identity.SetClaim(OpenIddictConstants.Claims.Subject, user!.Id);
+            identity.SetClaim(OpenIddictConstants.Claims.Name, user.UserName);
+            identity.SetScopes(request.GetScopes());
+            identity.SetDestinations(GetDestinations);
+
+            return SignIn(new ClaimsPrincipal(identity), OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
         }
 
         throw new NotImplementedException("Unsupported grant type");

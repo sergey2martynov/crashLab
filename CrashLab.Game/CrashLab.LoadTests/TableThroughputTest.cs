@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using Microsoft.AspNetCore.SignalR.Client;
 
@@ -6,11 +7,14 @@ namespace CrashLab.LoadTests;
 
 public static class TableThroughputTest
 {
-    private static async Task<Guid> WaitForRoundId(string tableId)
+    private static async Task<Guid> WaitForRoundId(string tableId, string token)
     {
         var tcs = new TaskCompletionSource<Guid>();
         var listener = new HubConnectionBuilder()
-            .WithUrl("http://localhost:5195/gamehub")
+            .WithUrl("http://api.crashlab.local:8090/gamehub", options =>
+            {
+                options.AccessTokenProvider = () => Task.FromResult(token)!;
+            })
             .Build();
 
         listener.On<TickDto>("ReceiveTick", tick =>
@@ -27,18 +31,21 @@ public static class TableThroughputTest
     
     public static async Task RunAsync(HttpClient httpClient)
     {
-        var table1RoundId = await WaitForRoundId("table-1");
+        var tokens = await AuthTokenPool.FetchAsync(httpClient);
+        var tokenIndex = 0;
+        string NextToken() => tokens[Interlocked.Increment(ref tokenIndex) % tokens.Count];
+
+        var table1RoundId = await WaitForRoundId("table-1", NextToken());
         var swSingle = Stopwatch.StartNew();
 
         var singleTableTasks = Enumerable.Range(0, 999).Select(async _ =>
         {
-            var accountId = Guid.NewGuid();
-            var request = new HttpRequestMessage(HttpMethod.Post, "http://localhost:5195/bets")
+            var request = new HttpRequestMessage(HttpMethod.Post, "http://api.crashlab.local:8090/bets")
             {
                 Content = JsonContent.Create(new
-                    { AccountId = accountId, Amount = 50m, RoundId = table1RoundId, tableId = "table-1" })
+                    { Amount = 50m, RoundId = table1RoundId, tableId = "table-1" })
             };
-            request.Headers.Add("X-Account-Id", accountId.ToString());
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", NextToken());
             return await httpClient.SendAsync(request);
         });
 
@@ -47,21 +54,20 @@ public static class TableThroughputTest
         var singleOk = singleResults.Count(r => r.IsSuccessStatusCode);
 
         var roundIds = await Task.WhenAll(
-            WaitForRoundId("table-1"),
-            WaitForRoundId("table-2"),
-            WaitForRoundId("table-3"));
+            WaitForRoundId("table-1", NextToken()),
+            WaitForRoundId("table-2", NextToken()),
+            WaitForRoundId("table-3", NextToken()));
         var (table1Next, table2Round, table3Round) = (roundIds[0], roundIds[1], roundIds[2]);
 
         var swMulti = Stopwatch.StartNew();
 
         Task<HttpResponseMessage> PlaceBet(Guid roundId, string tableId, decimal amount)
         {
-            var accountId = Guid.NewGuid();
-            var request = new HttpRequestMessage(HttpMethod.Post, "http://localhost:5195/bets")
+            var request = new HttpRequestMessage(HttpMethod.Post, "http://api.crashlab.local:8090/bets")
             {
-                Content = JsonContent.Create(new { AccountId = accountId, Amount = amount, RoundId = roundId, tableId })
+                Content = JsonContent.Create(new { Amount = amount, RoundId = roundId, tableId })
             };
-            request.Headers.Add("X-Account-Id", accountId.ToString());
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", NextToken());
             return httpClient.SendAsync(request);
         }
 
