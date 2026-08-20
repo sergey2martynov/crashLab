@@ -38,7 +38,7 @@ public class TableManagerGrain(ITableCatalog tableCatalog, ILogger<TableManagerG
     public Task<IReadOnlyList<string>> GetOpenTables() =>
         Task.FromResult<IReadOnlyList<string>>(_openTables.ToList());
 
-    private Task EvaluateScaling()
+    private async Task EvaluateScaling()
     {
         var now = DateTimeOffset.UtcNow;
         foreach (var baseTable in tableCatalog.GetAllTables())
@@ -55,6 +55,7 @@ public class TableManagerGrain(ITableCatalog tableCatalog, ILogger<TableManagerG
                 var newId = $"{baseTable.TableId}-{index}";
                 _openTables.Add(newId);
                 logger.LogInformation("Opening {Table} (busiest instance had {Count} bets)", newId, busiest);
+                await GrainFactory.GetGrain<IRoundGrain>(newId).EnsureStarted();
             }
 
             foreach (var extra in instances.Where(id => id != baseTable.TableId))
@@ -67,7 +68,20 @@ public class TableManagerGrain(ITableCatalog tableCatalog, ILogger<TableManagerG
                 }
             }
         }
-        return Task.CompletedTask;
+    }
+    
+    public Task<string> ResolveTargetInstance(string baseTableId)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var instances = _openTables
+            .Where(id => id == baseTableId || id.StartsWith(baseTableId + "-"))
+            .ToList();
+
+        var target = instances
+            .OrderBy(id => Volume(id, now))
+            .First();
+
+        return Task.FromResult(target);
     }
 
     private int Volume(string tableId, DateTimeOffset now) =>

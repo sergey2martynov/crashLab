@@ -24,6 +24,7 @@ public static class TableThroughputTest
         });
 
         await listener.StartAsync();
+        await listener.InvokeAsync("JoinTable", tableId);
         var roundId = await tcs.Task;
         await listener.StopAsync();
         return roundId;

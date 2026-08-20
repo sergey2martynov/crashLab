@@ -1,147 +1,172 @@
 using System.Collections.Concurrent;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using Microsoft.AspNetCore.SignalR.Client;
 
 namespace CrashLab.LoadTests;
 
+// Волна = один раунд: WaveSize юзеров заходят одновременно, ставят в один и тот
+// же раунд, кэшаутятся одновременно у одного и того же краша (пиковая гонка
+// сохраняется внутри волны), по сумме волн дотягиваем до WaveCount*WaveSize
+// уникальных участников без пересечения аккаунтов между волнами.
+//
+// Важно: JoinTable("table-1") может резолвиться в другой инстанс (table-1-N),
+// если сам table-1 уже нагружен предыдущими волнами — используем ИМЕННО
+// резолвленный id везде внутри волны (фильтр тиков, ставка), не литерал
+// "table-1", иначе тики целевого инстанса никогда не пройдут фильтр.
 public static class PeakCrashTest
 {
+    private const int WaveCount = 10;
+    private const int WaveSize = 100;
+    private const string GatewayUrl = "http://api.crashlab.local:8090";
+
     public static async Task RunAsync(HttpClient httpClient)
     {
-        var crashTimes = new ConcurrentDictionary<Guid, DateTimeOffset>();
-        var crashListener = new HubConnectionBuilder()
-            .WithUrl("http://localhost:5195/gamehub")
-            .Build();
+        var tokens = await AuthTokenPool.FetchAsync(httpClient, WaveCount * WaveSize);
 
-        crashListener.On<TickDto>("ReceiveTick", tick =>
+        var allCashoutResults = new ConcurrentBag<CashoutRecord>();
+        var allWalletChecks = new ConcurrentBag<(Guid BetId, bool ShouldBeCredited, decimal Baseline, decimal Actual)>();
+
+        for (var wave = 0; wave < WaveCount; wave++)
         {
-            if (tick.State == "Crashed")
-                crashTimes.TryAdd(tick.RoundId, tick.ServerTime);
-        });
+            var waveTokens = tokens.Skip(wave * WaveSize).Take(WaveSize).ToList();
+            Console.WriteLine($"peak crash: wave {wave + 1}/{WaveCount} starting at {DateTimeOffset.UtcNow:O}");
 
-        await crashListener.StartAsync();
+            var baselines = new ConcurrentDictionary<string, decimal>();
+            await Task.WhenAll(waveTokens.Select(async token =>
+                baselines[token] = await GetBalance(httpClient, token)));
 
-        var waitingForBetsListener = new HubConnectionBuilder()
-            .WithUrl("http://localhost:5195/gamehub")
-            .Build();
+            var anchor = new HubConnectionBuilder()
+                .WithUrl($"{GatewayUrl}/gamehub", options =>
+                {
+                    options.AccessTokenProvider = () => Task.FromResult(waveTokens[0])!;
+                })
+                .Build();
 
-        var waitingForBets = new TaskCompletionSource();
-        var currentRoundId = Guid.Empty;
-        waitingForBetsListener.On<TickDto>("ReceiveTick", tick =>
-        {
-            if (tick.State == "WaitingForBets" && tick.TableId == "table-1")
+            var waitingForBets = new TaskCompletionSource<Guid>();
+            var running = new TaskCompletionSource<bool>();
+            var crashed = new TaskCompletionSource<DateTimeOffset>();
+            string? instanceId = null;
+
+            anchor.On<TickDto>("ReceiveTick", tick =>
             {
-                currentRoundId = tick.RoundId;
-                waitingForBets.TrySetResult();
+                if (instanceId is null || tick.TableId != instanceId) return;
+                switch (tick.State)
+                {
+                    case "WaitingForBets":
+                        waitingForBets.TrySetResult(tick.RoundId);
+                        break;
+                    case "Running":
+                        running.TrySetResult();
+                        break;
+                    case "Crashed":
+                        crashed.TrySetResult(tick.ServerTime);
+                        break;
+                }
+            });
+
+            await anchor.StartAsync();
+            instanceId = await anchor.InvokeAsync<string>("JoinTable", "table-1");
+            Console.WriteLine($"peak crash: wave {wave + 1}/{WaveCount} resolved to {instanceId}");
+
+            var currentRoundId = await WaitWithTimeout(waitingForBets.Task, TimeSpan.FromSeconds(35), $"wave {wave + 1} WaitingForBets on {instanceId}");
+            if (currentRoundId is null)
+            {
+                await anchor.StopAsync();
+                continue;
             }
-        });
 
-        await waitingForBetsListener.StartAsync();
-        await waitingForBets.Task;
-        Console.WriteLine($"peak crash: got round {currentRoundId} at {DateTimeOffset.UtcNow:O}");
+            var placedBets = new ConcurrentBag<(Guid BetId, string Token)>();
 
-        var placedBets = new ConcurrentBag<PlacedBet>();
-
-        var placeBetTasks = Enumerable.Range(0, 1000).Select(async _ =>
-        {
-            var accountId = Guid.NewGuid();
-            var request = new HttpRequestMessage(HttpMethod.Post, "http://localhost:5195/bets")
+            var placeBetTasks = waveTokens.Select(async token =>
             {
-                Content = JsonContent.Create(new { AccountId = accountId, Amount = 10m, RoundId = currentRoundId, tableId = "table-1" })
-            };
-            request.Headers.Add("X-Account-Id", accountId.ToString());
-            var betResponse = await httpClient.SendAsync(request);
-            
-            if (betResponse.IsSuccessStatusCode)
+                var request = new HttpRequestMessage(HttpMethod.Post, $"{GatewayUrl}/bets")
+                {
+                    Content = JsonContent.Create(new { Amount = 10m, RoundId = currentRoundId.Value, tableId = instanceId })
+                };
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                var betResponse = await httpClient.SendAsync(request);
+
+                if (betResponse.IsSuccessStatusCode)
+                {
+                    var bet = await betResponse.Content.ReadFromJsonAsync<BetDto>();
+                    placedBets.Add((bet!.Id, token));
+                }
+            });
+
+            await Task.WhenAll(placeBetTasks);
+
+            var reachedRunning = await WaitWithTimeout(running.Task, TimeSpan.FromSeconds(15), $"wave {wave + 1} Running on {instanceId}");
+
+            var waveCashoutResults = new ConcurrentBag<CashoutRecord>();
+
+            if (reachedRunning is not null)
             {
-                var bet = await betResponse.Content.ReadFromJsonAsync<BetDto>();
-                placedBets.Add(new PlacedBet(bet!.Id, accountId));
+                var cashoutTasks = placedBets.Select(async placedBet =>
+                {
+                    var request = new HttpRequestMessage(HttpMethod.Post, $"{GatewayUrl}/bets/{placedBet.BetId}/cashout");
+                    request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", placedBet.Token);
+                    var cashoutResponse = await httpClient.SendAsync(request);
+
+                    var record = new CashoutRecord(placedBet.BetId, cashoutResponse.IsSuccessStatusCode, cashoutResponse.StatusCode, DateTimeOffset.UtcNow);
+                    waveCashoutResults.Add(record);
+                    allCashoutResults.Add(record);
+                });
+
+                await Task.WhenAll(cashoutTasks);
             }
-        });
 
-        await Task.WhenAll(placeBetTasks);
-        Console.WriteLine($"peak crash: bets placed at {DateTimeOffset.UtcNow:O}");
-        await waitingForBetsListener.StopAsync();
+            var crashedAt = await WaitWithTimeout(crashed.Task, TimeSpan.FromSeconds(60), $"wave {wave + 1} Crashed on {instanceId}");
+            await anchor.StopAsync();
 
-        var targetRoundId = Guid.Empty;
-        var runningListener = new HubConnectionBuilder()
-            .WithUrl("http://localhost:5195/gamehub")
-            .Build();
-
-        var running = new TaskCompletionSource();
-        runningListener.On<TickDto>("ReceiveTick", tick =>
-        {
-            if (tick.State == "Running" && tick.TableId == "table-1")
+            var balanceCheckTasks = placedBets.Select(async placedBet =>
             {
-                targetRoundId = tick.RoundId;
-                Console.WriteLine($"peak crash: caught Running tick, client={DateTimeOffset.UtcNow:O}, server={tick.ServerTime:O}, roundId={tick.RoundId}");
-                if (tick.RoundId != currentRoundId)
-                    Console.WriteLine($"peak crash: MISMATCH — already on next round! bets round={currentRoundId}, running round={tick.RoundId}");
-                running.TrySetResult();
-            }
-        });
+                var actual = await GetBalance(httpClient, placedBet.Token);
+                var shouldBeCredited = waveCashoutResults.FirstOrDefault(r => r.BetId == placedBet.BetId)?.Success ?? false;
+                allWalletChecks.Add((placedBet.BetId, shouldBeCredited, baselines[placedBet.Token], actual));
+            });
 
-        await runningListener.StartAsync();
-        await running.Task;
-        await runningListener.StopAsync();
+            await Task.WhenAll(balanceCheckTasks);
 
-        var cashoutResults = new ConcurrentBag<CashoutRecord>();
+            Console.WriteLine($"peak crash: wave {wave + 1}/{WaveCount} done — instance={instanceId}, {placedBets.Count} bets placed, {waveCashoutResults.Count(r => r.Success)} cashed out, crashed at {(crashedAt.HasValue ? crashedAt.Value.ToString("O") : "unknown")}");
+        }
 
-        var cashoutTasks = placedBets.Select(async placedBet =>
-        {
-            var request = new HttpRequestMessage(HttpMethod.Post, $"http://localhost:5195/bets/{placedBet.BetId}/cashout");
-            request.Headers.Add("X-Account-Id", placedBet.AccountId.ToString());
-            var cashoutResponse = await httpClient.SendAsync(request);
-            
-            var timestamp = DateTimeOffset.UtcNow;
-            cashoutResults.Add(new CashoutRecord(placedBet.BetId, cashoutResponse.IsSuccessStatusCode, cashoutResponse.StatusCode, timestamp));
-        });
-
-        await Task.WhenAll(cashoutTasks);
-        
-        var failuresByStatus = cashoutResults.Where(r => !r.Success).GroupBy(r => r.StatusCode);
+        var failuresByStatus = allCashoutResults.Where(r => !r.Success).GroupBy(r => r.StatusCode);
         foreach (var g in failuresByStatus)
             Console.WriteLine($"peak crash: {g.Count()} failed with {g.Key}");
 
-        while (!crashTimes.ContainsKey(targetRoundId))
-        {
-            await Task.Delay(200);
-        }
+        Console.WriteLine($"peak crash: {allCashoutResults.Count(r => r.Success)} succeeded / {allCashoutResults.Count(r => !r.Success)} failed (of {allCashoutResults.Count})");
 
-        var crashInstant = crashTimes[targetRoundId];
-        var tolerance = TimeSpan.FromMilliseconds(100);
+        // не кэшаутнутый — баланс ровно baseline-10 (только дебет); кэшаутнутый — должен
+        // отличаться от baseline-10 (кредит поверх дебета)
+        var mismatches = allWalletChecks
+            .Where(w => w.ShouldBeCredited != (w.Actual != w.Baseline - 10m))
+            .ToList();
 
-        var successAfterCrash = cashoutResults.Count(r => r.Success && r.Timestamp > crashInstant + tolerance);
-        var failBeforeCrash = cashoutResults.Count(r => !r.Success && r.Timestamp < crashInstant - tolerance);
-
-        Console.WriteLine($"peak crash: round {targetRoundId}, crash recorded at {crashInstant:O}");
-        Console.WriteLine($"peak crash: {cashoutResults.Count(r => r.Success)} succeeded / {cashoutResults.Count(r => !r.Success)} failed (of {cashoutResults.Count})");
-        Console.WriteLine($"peak crash: {successAfterCrash} succeeded suspiciously after crash (>{tolerance.TotalMilliseconds}ms past)");
-        Console.WriteLine($"peak crash: {failBeforeCrash} failed suspiciously before crash (>{tolerance.TotalMilliseconds}ms early)");
-
-        var walletChecks = new ConcurrentBag<(Guid AccountId, Guid BetId, bool ShouldBeCredited, decimal ActualBalance)>();
-
-        var balanceCheckTasks = placedBets.Select(async placedBet =>
-        {
-            var wallet = await httpClient.GetFromJsonAsync<WalletBalanceDto>(
-                $"http://localhost:5013/balance/{placedBet.AccountId}");
-
-            var cashout = cashoutResults.FirstOrDefault(r => r.BetId == placedBet.BetId);
-            var shouldBeCredited = cashout?.Success ?? false;
-
-            walletChecks.Add((placedBet.AccountId, placedBet.BetId, shouldBeCredited, wallet!.Balance));
-        });
-
-        await Task.WhenAll(balanceCheckTasks);
-
-        var mismatches = walletChecks.Where(w => w.ShouldBeCredited != (w.ActualBalance != 990m)).ToList();
-
-        Console.WriteLine($"peak crash: {mismatches.Count} balance mismatches (of {walletChecks.Count} accounts checked)");
+        Console.WriteLine($"peak crash: {mismatches.Count} balance mismatches (of {allWalletChecks.Count} accounts checked)");
         foreach (var m in mismatches)
         {
-            Console.WriteLine($"  MISMATCH account={m.AccountId} bet={m.BetId} shouldBeCredited={m.ShouldBeCredited} balance={m.ActualBalance}");
+            Console.WriteLine($"  MISMATCH bet={m.BetId} shouldBeCredited={m.ShouldBeCredited} baseline={m.Baseline} actual={m.Actual}");
         }
+    }
 
-        await crashListener.StopAsync();
+    private static async Task<T?> WaitWithTimeout<T>(Task<T> task, TimeSpan timeout, string what) where T : struct
+    {
+        var completed = await Task.WhenAny(task, Task.Delay(timeout));
+        if (completed != task)
+        {
+            Console.WriteLine($"peak crash: WARNING — timed out waiting for {what} after {timeout.TotalSeconds}s");
+            return null;
+        }
+        return await task;
+    }
+
+    private static async Task<decimal> GetBalance(HttpClient httpClient, string token)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, $"{GatewayUrl}/balance");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var response = await httpClient.SendAsync(request);
+        var wallet = await response.Content.ReadFromJsonAsync<WalletBalanceDto>();
+        return wallet!.Balance;
     }
 }

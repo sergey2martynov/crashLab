@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using Microsoft.AspNetCore.SignalR.Client;
 using NBomber.Contracts;
@@ -13,24 +14,26 @@ namespace CrashLab.LoadTests;
 // в Grafana во время прогона (дашборды уже настроены с Фазы 1).
 public static class FullLoadTest
 {
-    private const string GatewayUrl = "http://localhost:5195";
+    private const string GatewayUrl = "http://api.crashlab.local:8090";
     private static readonly TimeSpan TestDuration = TimeSpan.FromMinutes(5);
 
     // per-IP лимитер на Gateway — 20 permits/10с, но SignalR тратит 2 запроса на
     // соединение (negotiate + upgrade), см. Фазу 6. Группы по 8 держат это в
     // пределах лимита (16/20), так что почти весь пул реально подключается —
     // здесь мы не пере-тестируем сам лимитер, а хотим полноценный fan-out.
-    private static async Task<ConcurrentBag<double>> StartTickListenersAsync(int count, int perIpGroupSize)
+    private static async Task<ConcurrentBag<double>> StartTickListenersAsync(int count, int perIpGroupSize, IReadOnlyList<string> tokens)
     {
         var latencies = new ConcurrentBag<double>();
 
         var connectTasks = Enumerable.Range(0, count).Select(async i =>
         {
             var fakeIp = $"10.2.{i / perIpGroupSize}.1";
+            var token = tokens[i % tokens.Count];
             var connection = new HubConnectionBuilder()
                 .WithUrl($"{GatewayUrl}/gamehub", options =>
                 {
                     options.Headers["X-Forwarded-For"] = fakeIp;
+                    options.AccessTokenProvider = () => Task.FromResult(token)!;
                 })
                 .WithAutomaticReconnect()
                 .Build();
@@ -44,6 +47,7 @@ public static class FullLoadTest
             try
             {
                 await connection.StartAsync();
+                await connection.InvokeAsync("JoinTable", "table-1");
             }
             catch
             {
@@ -55,20 +59,25 @@ public static class FullLoadTest
         return latencies;
     }
 
-    private static ScenarioProps PlayerScenario(string name, HttpClient httpClient, string tableId, decimal betAmount, int copies)
+    private static ScenarioProps PlayerScenario(string name, HttpClient httpClient, string tableId, decimal betAmount, int copies, IReadOnlyList<string> tokens)
     {
+        var tokenIndex = 0;
+        string NextToken() => tokens[Interlocked.Increment(ref tokenIndex) % tokens.Count];
+
         return Scenario.Create(name, async context =>
             {
-                var accountId = Guid.NewGuid();
+                var token = NextToken();
                 // per-IP лимитер на Gateway (20 permits/10с) считает по X-Forwarded-For с
                 // фоллбеком на RemoteIpAddress — без разброса весь трафик шёл бы с 127.0.0.1
-                // и упирался в лимит почти сразу (см. Фазу 6). Хэш нового accountId даёт
-                // новый IP почти каждую итерацию, так что каждый "игрок" получает свежий бюджет.
-                var fakeIp = $"10.3.{Math.Abs(accountId.GetHashCode()) % 250}.1";
+                // и упирался в лимит почти сразу (см. Фазу 6). Хэш свежего Guid на каждую
+                // итерацию даёт новый IP почти каждый раз — сам аккаунт при этом переиспользуется
+                // из пула loadtest-токенов, это про диверсификацию IP, не про личность игрока.
+                var fakeIp = $"10.3.{Math.Abs(Guid.NewGuid().GetHashCode()) % 250}.1";
                 var connection = new HubConnectionBuilder()
                     .WithUrl($"{GatewayUrl}/gamehub", options =>
                     {
                         options.Headers["X-Forwarded-For"] = fakeIp;
+                        options.AccessTokenProvider = () => Task.FromResult(token)!;
                     })
                     .Build();
 
@@ -92,13 +101,14 @@ public static class FullLoadTest
                 });
 
                 await connection.StartAsync();
+                await connection.InvokeAsync("JoinTable", tableId);
                 await waitingForBets.Task;
 
                 var betRequest = new HttpRequestMessage(HttpMethod.Post, $"{GatewayUrl}/bets")
                 {
-                    Content = JsonContent.Create(new { AccountId = accountId, Amount = betAmount, RoundId = currentRoundId, tableId })
+                    Content = JsonContent.Create(new { Amount = betAmount, RoundId = currentRoundId, tableId })
                 };
-                betRequest.Headers.Add("X-Account-Id", accountId.ToString());
+                betRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
                 betRequest.Headers.Add("X-Forwarded-For", fakeIp);
                 var betResponse = await httpClient.SendAsync(betRequest);
 
@@ -113,7 +123,7 @@ public static class FullLoadTest
                 await running.Task;
 
                 var cashoutRequest = new HttpRequestMessage(HttpMethod.Post, $"{GatewayUrl}/bets/{bet!.Id}/cashout");
-                cashoutRequest.Headers.Add("X-Account-Id", accountId.ToString());
+                cashoutRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
                 cashoutRequest.Headers.Add("X-Forwarded-For", fakeIp);
                 var cashoutResponse = await httpClient.SendAsync(cashoutRequest);
 
@@ -129,15 +139,17 @@ public static class FullLoadTest
 
     public static async Task RunAsync(HttpClient httpClient)
     {
+        var tokens = await AuthTokenPool.FetchAsync(httpClient);
+
         Console.WriteLine($"full load: connecting listener pool at {DateTimeOffset.UtcNow:O}");
-        var latencies = await StartTickListenersAsync(count: 1000, perIpGroupSize: 8);
+        var latencies = await StartTickListenersAsync(count: 1000, perIpGroupSize: 8, tokens);
         Console.WriteLine($"full load: listeners connected, starting {TestDuration.TotalMinutes}-minute sustained run at {DateTimeOffset.UtcNow:O}");
 
         var scenarios = new[]
         {
-            PlayerScenario("full_load_table1", httpClient, "table-1", 10m, copies: 40),
-            PlayerScenario("full_load_table2", httpClient, "table-2", 50m, copies: 20),
-            PlayerScenario("full_load_table3", httpClient, "table-3", 200m, copies: 10),
+            PlayerScenario("full_load_table1", httpClient, "table-1", 10m, copies: 40, tokens),
+            PlayerScenario("full_load_table2", httpClient, "table-2", 50m, copies: 20, tokens),
+            PlayerScenario("full_load_table3", httpClient, "table-3", 200m, copies: 10, tokens),
         };
 
         NBomberRunner.RegisterScenarios(scenarios).Run();

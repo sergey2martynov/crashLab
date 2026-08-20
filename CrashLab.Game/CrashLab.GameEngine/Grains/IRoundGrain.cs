@@ -6,4 +6,5 @@ public interface IRoundGrain : IGrainWithStringKey
     Task<RoundDto> Tick(DateTimeOffset now);
     ValueTask<double> GetCurrentMultiplier(DateTimeOffset now);
     Task<RoundDto> GetState();
+    Task EnsureStarted();
 }

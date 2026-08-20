@@ -7,8 +7,9 @@ public record ChaosEvent(DateTimeOffset Time, int ConnectionIndex, string Type, 
 
 public static class WsListenersTest
 {
-    public static async Task<(ConcurrentBag<double> Latencies, ConcurrentBag<ChaosEvent> Events)> StartAsync()
+    public static async Task<(ConcurrentBag<double> Latencies, ConcurrentBag<ChaosEvent> Events)> StartAsync(HttpClient httpClient)
     {
+        var tokens = await AuthTokenPool.FetchAsync(httpClient);
         var latencies = new ConcurrentBag<double>();
         var events = new ConcurrentBag<ChaosEvent>();
 
@@ -16,10 +17,12 @@ public static class WsListenersTest
         {
             var fakeIp = $"10.0.{i / 25}.1";
             var index = i;
+            var token = tokens[i % tokens.Count];
             var connection = new HubConnectionBuilder()
-                .WithUrl("http://localhost:5195/gamehub", options =>
+                .WithUrl("http://api.crashlab.local:8090/gamehub", options =>
                 {
                     options.Headers["X-Forwarded-For"] = fakeIp;
+                    options.AccessTokenProvider = () => Task.FromResult(token)!;
                 })
                 .WithAutomaticReconnect()
                 .Build();
@@ -51,6 +54,7 @@ public static class WsListenersTest
             try
             {
                 await connection.StartAsync();
+                await connection.InvokeAsync("JoinTable", "table-1");
             }
             catch (Exception ex)
             {

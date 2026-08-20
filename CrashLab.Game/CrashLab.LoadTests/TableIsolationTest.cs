@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using Microsoft.AspNetCore.SignalR.Client;
 
@@ -8,11 +8,15 @@ public static class TableIsolationTest
 {
     public static async Task RunAsync(HttpClient httpClient)
     {
+        var tokens = await AuthTokenPool.FetchAsync(httpClient);
         var currentRoundId = Guid.Empty;
         var waitingForBets = new TaskCompletionSource();
 
         var listener = new HubConnectionBuilder()
-            .WithUrl("http://localhost:5195/gamehub")
+            .WithUrl("http://api.crashlab.local:8090/gamehub", options =>
+            {
+                options.AccessTokenProvider = () => Task.FromResult(tokens[0])!;
+            })
             .Build();
 
         listener.On<TickDto>("ReceiveTick", tick =>
@@ -25,26 +29,25 @@ public static class TableIsolationTest
         });
 
         await listener.StartAsync();
+        await listener.InvokeAsync("JoinTable", "table-2");
         await waitingForBets.Task;
-        
-        var belowLimitAccountId = Guid.NewGuid();
-        var request = new HttpRequestMessage(HttpMethod.Post, "http://localhost:5195/bets")
+
+        var request = new HttpRequestMessage(HttpMethod.Post, "http://api.crashlab.local:8090/bets")
         {
-            Content = JsonContent.Create(new { AccountId = belowLimitAccountId, Amount = 5m, RoundId = currentRoundId, tableId = "table-2" })
+            Content = JsonContent.Create(new { Amount = 5m, RoundId = currentRoundId, tableId = "table-2" })
         };
-        request.Headers.Add("X-Account-Id", belowLimitAccountId.ToString());
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", tokens[1]);
         var belowLimitResponse = await httpClient.SendAsync(request);
 
-        var validAccountId = Guid.NewGuid();
-        request = new HttpRequestMessage(HttpMethod.Post, "http://localhost:5195/bets")
+        request = new HttpRequestMessage(HttpMethod.Post, "http://api.crashlab.local:8090/bets")
         {
-            Content = JsonContent.Create(new { AccountId = validAccountId, Amount = 50m, RoundId = currentRoundId, tableId = "table-2" })
+            Content = JsonContent.Create(new { Amount = 50m, RoundId = currentRoundId, tableId = "table-2" })
         };
-        request.Headers.Add("X-Account-Id", validAccountId.ToString());
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", tokens[2]);
         var validResponse = await httpClient.SendAsync(request);
-        
+
         await listener.StopAsync();
-        
+
         Console.WriteLine(belowLimitResponse.IsSuccessStatusCode
             ? "table isolation: FAIL — ставка ниже MinBet была принята"
             : "table isolation: OK — ставка ниже MinBet отклонена");

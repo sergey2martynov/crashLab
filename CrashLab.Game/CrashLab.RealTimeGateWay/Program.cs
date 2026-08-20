@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using Confluent.Kafka;
 using CrashLab.Game.Metrics;
 using CrashLab.RealTimeGateWay;
+using CrashLab.RealTimeGateWay.Clients;
 using CrashLab.RealTimeGateWay.Hubs;
 using CrashLab.RealTimeGateWay.Services;
 using Microsoft.AspNetCore.SignalR;
@@ -37,6 +38,11 @@ builder.Services.AddOpenIddict()
 
         
     });
+
+builder.Services.AddHttpClient<IGameEngineClient, GameEngineClient>(client =>
+{
+    client.BaseAddress = new Uri(builder.Configuration["GameEngine:BaseUrl"]!);
+});
 
 builder.Services.AddAuthentication(OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme);
 builder.Services.AddAuthorization();

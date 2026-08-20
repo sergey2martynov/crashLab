@@ -18,6 +18,8 @@ spec:
           image: realtimegateway:local
           imagePullPolicy: Never
           env:
+            - name: GameEngine__BaseUrl
+              value: "http://gameengine:8080"
             - name: Redis__ConnectionString
               value: "redis:6379"
             - name: Kafka__BootstrapServers

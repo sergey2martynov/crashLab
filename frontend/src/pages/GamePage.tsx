@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams } from 'react-router-dom'
-import { HubConnectionBuilder} from "@microsoft/signalr";
+import { HubConnectionBuilder, type HubConnection} from "@microsoft/signalr";
 import {useAuth} from "../auth/useAuth.ts";
 import { placeBet, cashOut, type Bet } from "../api/betsApi.ts";
 import { getBalance } from '../api/walletApi.ts'
@@ -9,19 +9,31 @@ import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, ReferenceDot } from
 function GamePage() {
     const { tableId } = useParams()
     const user = useAuth()
+    const [resolvedTableId, setResolvedTableId] = useState<string | null>(null)
     const [tickData, setData] = useState<{ roundId: string; tableId: string; multiplier: number; state: string } | null>(null)
     const [betAmount, setAmount] = useState<number>(50)
     const [activeBet, setActiveBet] = useState<Bet | null>(null)
     const [balance, setBalance] = useState<number | null>(null)
     const [history, setHistory] = useState<{ time: number; multiplier: number }[]>([])
     const lastPoint = history[history.length - 1]
+    const connectionRef = useRef<HubConnection | null>(null)
 
     async function handleBetClick() {
-        if(!user || !tickData) return;
-        const bet = await placeBet(tableId!, tickData.roundId, betAmount, user.access_token)
-        setActiveBet(bet)
-        getBalance(user.access_token).then(w => setBalance(w.balance))
-        console.log("bet", bet)
+        if(!user || !tickData || !resolvedTableId) return;
+        try {
+            const bet = await placeBet(resolvedTableId, tickData.roundId, betAmount, user.access_token)
+            setActiveBet(bet)
+            getBalance(user.access_token).then(w => setBalance(w.balance))
+        } catch (err) {
+            if (err instanceof Error && err.message.includes('Table is closed') && connectionRef.current) {
+                const instanceId = await connectionRef.current.invoke<string>('JoinTable', tableId!)
+                setResolvedTableId(instanceId)
+                setData(null)
+                setHistory([])
+            } else {
+                console.error(err)
+            }
+        }
     }
 
     async function handleCashoutClick() {
@@ -47,8 +59,8 @@ function GamePage() {
             })
             .build()
 
+        connectionRef.current = connection
         connection.on('ReceiveTick', (data) => {
-            if (data.tableId !== tableId) return
             setData(data)
             setHistory(prev => data.state === 'WaitingForBets' ? [] : [...prev, { time: data.serverTime, multiplier: data.multiplier }])
         })
@@ -58,15 +70,19 @@ function GamePage() {
             setActiveBet(prev => prev?.id === data.betId ? null : prev)
         })
 
-        connection.start().catch(err => console.error(err))
+        connection.start()
+            .then(() => connection.invoke<string>('JoinTable', tableId!))
+            .then(instanceId => setResolvedTableId(instanceId))
+            .catch(err => console.error(err))
 
         return () => {
             connection.stop()
+            connectionRef.current = null
         }
     }, [user, tableId]);
     return (
         <div>
-            <h1>Стол: {tableId}</h1>
+            <h1>Table: {resolvedTableId ?? tableId}</h1>
             <p>Multiplier: {tickData?.multiplier ?? '-'}</p>
             <div>
                 <input

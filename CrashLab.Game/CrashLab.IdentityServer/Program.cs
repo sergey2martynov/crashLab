@@ -118,9 +118,9 @@ using (var scope = app.Services.CreateScope())
 using (var scope = app.Services.CreateScope())
 {
     var userManager = scope.ServiceProvider.GetRequiredService<UserManager<IdentityUser>>();
-    for (var i = 0; i < 50; i++)
+    for (var i = 0; i < 1000; i++)
     {
-        var username = $"loadtest_{i:D2}";
+        var username = $"loadtest_{i:D3}";
         if (await userManager.FindByNameAsync(username) is null)
         {
             var user = new IdentityUser { UserName = username, Email = $"{username}@crashlab.local" };

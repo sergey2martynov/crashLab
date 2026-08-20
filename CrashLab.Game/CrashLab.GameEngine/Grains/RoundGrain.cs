@@ -28,6 +28,8 @@ public class RoundGrain(ILogger<RoundGrain> logger,
         Converters = { new JsonStringEnumConverter() }
     };
     
+    public Task EnsureStarted() => Task.CompletedTask;
+    
     public override async Task OnActivateAsync(CancellationToken cancellationToken)
     {
         _config = tableCatalog.GetConfig(this.GetPrimaryKeyString());

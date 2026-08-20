@@ -1,3 +1,4 @@
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using Microsoft.AspNetCore.SignalR.Client;
 using NBomber.Contracts;
@@ -7,12 +8,19 @@ namespace CrashLab.LoadTests;
 
 public static class CashoutCrowdScenario
 {
-    public static ScenarioProps Create(HttpClient httpClient)
+    public static ScenarioProps Create(HttpClient httpClient, IReadOnlyList<string> tokens)
     {
+        var tokenIndex = 0;
+        string NextToken() => tokens[Interlocked.Increment(ref tokenIndex) % tokens.Count];
+
         return Scenario.Create("cashout_crowd", async context =>
             {
+                var token = NextToken();
                 var connection = new HubConnectionBuilder()
-                    .WithUrl("http://localhost:5195/gamehub")
+                    .WithUrl("http://api.crashlab.local:8090/gamehub", options =>
+                    {
+                        options.AccessTokenProvider = () => Task.FromResult(token)!;
+                    })
                     .Build();
 
                 // ждём WaitingForBets
@@ -20,7 +28,7 @@ public static class CashoutCrowdScenario
                 var currentRoundId = Guid.Empty;
                 connection.On<TickDto>("ReceiveTick", tick =>
                 {
-                    if (tick.ToString()!.Contains("WaitingForBets") && tick.TableId == "table-1")
+                    if (tick.State == "WaitingForBets" && tick.TableId == "table-1")
                     {
                         currentRoundId = tick.RoundId;
                         waitingForBets.TrySetResult();
@@ -28,18 +36,17 @@ public static class CashoutCrowdScenario
                 });
 
                 await connection.StartAsync();
+                await connection.InvokeAsync("JoinTable", "table-1");
                 await waitingForBets.Task;
 
                 // ставка
-                var userId = Guid.NewGuid();
-                
-                var request = new HttpRequestMessage(HttpMethod.Post, "http://localhost:5195/bets")
+                var request = new HttpRequestMessage(HttpMethod.Post, "http://api.crashlab.local:8090/bets")
                 {
-                    Content = JsonContent.Create(new { AccountId = userId, Amount = 10m, RoundId = currentRoundId, tableId = "table-1" })
+                    Content = JsonContent.Create(new { Amount = 10m, RoundId = currentRoundId, tableId = "table-1" })
                 };
-                request.Headers.Add("X-Account-Id", userId.ToString());
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
                 var betResponse = await httpClient.SendAsync(request);
-                
+
                 if (!betResponse.IsSuccessStatusCode) return Response.Fail();
 
                 var bet = await betResponse.Content.ReadFromJsonAsync<BetDto>();
@@ -55,8 +62,8 @@ public static class CashoutCrowdScenario
                 await running.Task;
 
                 // cashout
-                var cashoutRequest = new HttpRequestMessage(HttpMethod.Post, $"http://localhost:5195/bets/{betId}/cashout");
-                cashoutRequest.Headers.Add("X-Account-Id", userId.ToString());
+                var cashoutRequest = new HttpRequestMessage(HttpMethod.Post, $"http://api.crashlab.local:8090/bets/{betId}/cashout");
+                cashoutRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
                 var cashoutResponse = await httpClient.SendAsync(cashoutRequest);
 
                 await connection.StopAsync();

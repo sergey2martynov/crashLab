@@ -14,7 +14,8 @@ public class HostedService(IConnectionMultiplexer redis, IHubContext<GameHub> hu
         queue.OnMessage(async channelMessage =>
         {
             var tick = JsonSerializer.Deserialize<JsonElement>(channelMessage.Message.ToString());
-            await hubContext.Clients.All.SendAsync("ReceiveTick", tick);
+            var tableId = tick.GetProperty("tableId").GetString()!;
+            await hubContext.Clients.Group(tableId).SendAsync("ReceiveTick", tick);
         });
     }
 
